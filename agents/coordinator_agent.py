@@ -20,9 +20,18 @@ class CoordinatorAgent(RoutedAgent):
             description="Coordinates the manufacturing decision workflow."
         )
 
-        # These IDs must match the IDs used when registering the agents.
-        self.machine_agent_id = AgentId("machine_agent", "M01")
-        self.quality_agent_id = AgentId("quality_agent", "default")
+        # The three Machine Agents that the Coordinator will contact
+        self.machine_agent_ids = [
+            AgentId("machine_agent", "M01"),
+            AgentId("machine_agent", "M02"),
+            AgentId("machine_agent", "M03"),
+        ]
+
+        self.quality_agent_id = AgentId(
+            "quality_agent",
+            "default",
+        )
+
         self.maintenance_agent_id = AgentId(
             "maintenance_agent",
             "default",
@@ -36,30 +45,46 @@ class CoordinatorAgent(RoutedAgent):
     ) -> FinalRecommendation:
         print(f"Coordinator received order {message.order_id}")
 
-        # STEP 1: Request machine information.
-        machine_request = MachineStatusRequest(
-            request_reason="order_evaluation",
-            order_id=message.order_id,
-        )
+        # -------------------------------------------------
+        # STEP 1: Request the status of every machine
+        # -------------------------------------------------
+        machine_responses: list[MachineStatusResponse] = []
 
-        machine_response = await self.send_message(
-            machine_request,
-            recipient=self.machine_agent_id,
-        )
-
-        if not isinstance(machine_response, MachineStatusResponse):
-            raise TypeError(
-                "The Machine Agent returned an invalid response."
+        for machine_agent_id in self.machine_agent_ids:
+            machine_request = MachineStatusRequest(
+                request_reason="order_evaluation",
+                order_id=message.order_id,
             )
 
-        print(
-            f"Coordinator received the status of "
-            f"{machine_response.machine_id}"
-        )
+            machine_response = await self.send_message(
+                machine_request,
+                recipient=machine_agent_id,
+            )
 
-        machine_data = [machine_response.model_dump()]
+            if not isinstance(
+                machine_response,
+                MachineStatusResponse,
+            ):
+                raise TypeError(
+                    f"{machine_agent_id} returned an invalid response."
+                )
 
-        # STEP 2: Request a quality assessment.
+            machine_responses.append(machine_response)
+
+            print(
+                f"Coordinator received the status of "
+                f"{machine_response.machine_id}"
+            )
+
+        # Convert all machine responses into dictionaries
+        machine_data = [
+            machine_response.model_dump()
+            for machine_response in machine_responses
+        ]
+
+        # -------------------------------------------------
+        # STEP 2: Request quality assessments
+        # -------------------------------------------------
         quality_request = QualityAssessmentRequest(
             order_id=message.order_id,
             quality_requirement=message.quality_requirement,
@@ -84,9 +109,11 @@ class CoordinatorAgent(RoutedAgent):
                 "The Quality Agent returned no assessments."
             )
 
-        print("Coordinator received the quality assessment")
+        print("Coordinator received the quality assessments")
 
-        # STEP 3: Request a maintenance assessment.
+        # -------------------------------------------------
+        # STEP 3: Request maintenance assessments
+        # -------------------------------------------------
         maintenance_request = MaintenanceAssessmentRequest(
             machine_data=machine_data,
         )
@@ -109,95 +136,172 @@ class CoordinatorAgent(RoutedAgent):
                 "The Maintenance Agent returned no assessments."
             )
 
-        print("Coordinator received the maintenance assessment")
+        print("Coordinator received the maintenance assessments")
 
-        quality_result = quality_response.assessments[0]
-        maintenance_result = maintenance_response.assessments[0]
+        # Store the assessments using machine ID
+        quality_by_machine = {
+            assessment["machine_id"]: assessment
+            for assessment in quality_response.assessments
+        }
 
-        # STEP 4: Apply fixed decision rules.
-        rejection_reasons: list[str] = []
+        maintenance_by_machine = {
+            assessment["machine_id"]: assessment
+            for assessment in maintenance_response.assessments
+        }
 
-        if machine_response.status != "available":
-            rejection_reasons.append(
-                "the machine is not available"
+        suitable_machines: list[tuple] = []
+        machines_filtered_out: list[dict] = []
+
+        # -------------------------------------------------
+        # STEP 4: Apply decision rules to every machine
+        # -------------------------------------------------
+        for machine in machine_responses:
+            rejection_reasons: list[str] = []
+
+            quality_result = quality_by_machine.get(
+                machine.machine_id
             )
 
-        if (
-            machine_response.capability
-            != message.required_capability
-        ):
-            rejection_reasons.append(
-                "the machine has the wrong capability"
+            maintenance_result = maintenance_by_machine.get(
+                machine.machine_id
             )
 
-        if (
-            machine_response.estimated_processing_time_mins
-            > message.deadline_minutes
-        ):
-            rejection_reasons.append(
-                "the machine cannot meet the deadline"
+            # Check availability
+            if machine.status != "available":
+                rejection_reasons.append(
+                    "machine is not available"
+                )
+
+            # Check required capability
+            if machine.capability != message.required_capability:
+                rejection_reasons.append(
+                    "wrong capability"
+                )
+
+            # Check deadline
+            if (
+                machine.estimated_processing_time_mins
+                > message.deadline_minutes
+            ):
+                rejection_reasons.append(
+                    "cannot meet the deadline"
+                )
+
+            # Check quality result
+            if quality_result is None:
+                rejection_reasons.append(
+                    "quality assessment is missing"
+                )
+            elif not quality_result.get(
+                "is_suitable",
+                False,
+            ):
+                rejection_reasons.append(
+                    "failed the quality assessment"
+                )
+
+            # Check maintenance result
+            if maintenance_result is None:
+                rejection_reasons.append(
+                    "maintenance assessment is missing"
+                )
+            elif (
+                maintenance_result.get(
+                    "availability_status"
+                )
+                != "available"
+            ):
+                rejection_reasons.append(
+                    "failed the maintenance assessment"
+                )
+
+            # Store rejected or suitable machine
+            if rejection_reasons:
+                machines_filtered_out.append(
+                    {
+                        "machine_id": machine.machine_id,
+                        "reason": ", ".join(
+                            rejection_reasons
+                        ),
+                    }
+                )
+            else:
+                suitable_machines.append(
+                    (
+                        machine,
+                        quality_result,
+                        maintenance_result,
+                    )
+                )
+
+        # -------------------------------------------------
+        # STEP 5: Select the best suitable machine
+        # -------------------------------------------------
+        if suitable_machines:
+            # First compare queue length.
+            # Then compare quality risk.
+            # Finally compare processing time.
+            selected = min(
+                suitable_machines,
+                key=lambda result: (
+                    result[0].queue_length,
+                    result[1].get(
+                        "quality_risk_score",
+                        1.0,
+                    ),
+                    result[0].estimated_processing_time_mins,
+                ),
             )
 
-        if not quality_result.get("is_suitable", False):
-            rejection_reasons.append(
-                "the machine did not pass the quality assessment"
-            )
+            selected_machine = selected[0]
+            selected_quality = selected[1]
+            selected_maintenance = selected[2]
 
-        if (
-            maintenance_result.get("availability_status")
-            != "available"
-        ):
-            rejection_reasons.append(
-                "the machine did not pass the maintenance assessment"
-            )
-
-        # STEP 5: Create the final recommendation.
-        if rejection_reasons:
-            selected_machine = "none"
+            selected_machine_id = selected_machine.machine_id
 
             justification = (
-                f"{machine_response.machine_id} was rejected because "
-                + ", ".join(rejection_reasons)
-                + "."
-            )
-
-            machines_filtered_out = [
-                {
-                    "machine_id": machine_response.machine_id,
-                    "reason": ", ".join(rejection_reasons),
-                }
-            ]
-
-        else:
-            selected_machine = machine_response.machine_id
-
-            justification = (
-                f"{machine_response.machine_id} was selected because "
+                f"{selected_machine.machine_id} was selected because "
                 f"it has the required "
                 f"{message.required_capability} capability, "
                 f"is available, can meet the deadline, "
                 f"and passed the quality and maintenance checks."
             )
 
-            machines_filtered_out = []
-
-        final_recommendation = FinalRecommendation(
-            order_id=message.order_id,
-            selected_machine=selected_machine,
-            justification=justification,
-            required_actions={
-                "quality": quality_result.get(
+            required_actions = {
+                "quality": selected_quality.get(
                     "recommended_action",
                     "none",
                 ),
-                "maintenance": maintenance_result.get(
+                "maintenance": selected_maintenance.get(
                     "maintenance_action_required",
                     "none",
                 ),
-            },
+            }
+
+        else:
+            selected_machine_id = "none"
+
+            justification = (
+                "No machine satisfied all order, quality, "
+                "and maintenance requirements."
+            )
+
+            required_actions = {
+                "quality": "none",
+                "maintenance": "none",
+            }
+
+        # -------------------------------------------------
+        # STEP 6: Create the final recommendation
+        # -------------------------------------------------
+        final_recommendation = FinalRecommendation(
+            order_id=message.order_id,
+            selected_machine=selected_machine_id,
+            justification=justification,
+            required_actions=required_actions,
             machines_filtered_out=machines_filtered_out,
         )
 
         print("Coordinator created the final recommendation")
 
-        return final_recommendation
+        return final_recommendation 
