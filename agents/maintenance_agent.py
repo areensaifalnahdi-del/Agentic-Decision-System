@@ -1,3 +1,5 @@
+from autogen_core import MessageContext, RoutedAgent, message_handler
+
 from messages.maintenance_assessment_request import (
     MaintenanceAssessmentRequest,
 )
@@ -6,55 +8,50 @@ from messages.maintenance_assessment_response import (
 )
 
 
-class MaintenanceAgent:
-    CRITICAL_WARNINGS = {
-        "spindle_failure",
-        "motor_failure",
-        "emergency_stop",
-        "severe_overheating",
-    }
+class MaintenanceAgent(RoutedAgent):
+    def __init__(self) -> None:
+        super().__init__(
+            description="Evaluates machine health and maintenance status."
+        )
 
-    def __init__(
+    @message_handler
+    async def handle_maintenance_request(
         self,
-        machine_id: str,
-        maintenance_condition: float,
-        active_warnings: list[str],
-    ):
-        self.machine_id = machine_id
-        self.maintenance_condition = maintenance_condition
-        self.active_warnings = active_warnings
-
-    def handle_maintenance_request(
-        self,
-        request: MaintenanceAssessmentRequest,
+        message: MaintenanceAssessmentRequest,
+        ctx: MessageContext,
     ) -> MaintenanceAssessmentResponse:
-        print(
-            f"Maintenance Agent assessed machine {self.machine_id}."
-        )
+        print("Maintenance Agent received an AutoGen request")
 
-        has_critical_warning = any(
-            warning in self.CRITICAL_WARNINGS
-            for warning in self.active_warnings
-        )
+        assessments: list[dict] = []
 
-        if self.maintenance_condition < 0.5 or has_critical_warning:
-            availability_status = "blocked"
-            maintenance_action = "immediate maintenance required"
+        for machine in message.machine_data:
+            machine_id = machine.get("machine_id", "unknown")
+            condition = machine.get("maintenance_condition", 0.0)
+            warnings = machine.get("active_warnings", [])
 
-        elif self.maintenance_condition < 0.7:
-            availability_status = "risky"
-            maintenance_action = "schedule maintenance"
+            # Fixed maintenance rules for the prototype
+            if condition < 0.5 or "critical_fault" in warnings:
+                availability_status = "blocked"
+                maintenance_action_required = "immediate inspection"
 
-        else:
-            availability_status = "available"
-            maintenance_action = "none"
+            elif condition < 0.75 or "overheating" in warnings:
+                availability_status = "maintenance required"
+                maintenance_action_required = "schedule maintenance check"
+
+            else:
+                availability_status = "available"
+                maintenance_action_required = "none"
+
+            assessments.append(
+                {
+                    "machine_id": machine_id,
+                    "availability_status": availability_status,
+                    "maintenance_action_required": (
+                        maintenance_action_required
+                    ),
+                }
+            )
 
         return MaintenanceAssessmentResponse(
-            assessments=[
-                {
-                    "machine_id": self.machine_id,
-                    "availability_status": availability_status,
-                    "maintenance_action_required": maintenance_action,
-                }
-            ]
+            assessments=assessments
         )

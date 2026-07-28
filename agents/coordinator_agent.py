@@ -1,234 +1,203 @@
+from autogen_core import AgentId, MessageContext, RoutedAgent, message_handler
+
 from messages.order_message import OrderMessage
 from messages.machine_status_request import MachineStatusRequest
+from messages.machine_status_response import MachineStatusResponse
 from messages.quality_assessment_request import QualityAssessmentRequest
+from messages.quality_assessment_response import QualityAssessmentResponse
 from messages.maintenance_assessment_request import (
     MaintenanceAssessmentRequest,
+)
+from messages.maintenance_assessment_response import (
+    MaintenanceAssessmentResponse,
 )
 from messages.final_recommendation import FinalRecommendation
 
 
-class CoordinatorAgent:
-    def __init__(
-        self,
-        machine_agents,
-        quality_agent,
-        maintenance_agents,
-    ):
-        self.machine_agents = machine_agents
-        self.quality_agent = quality_agent
-        self.maintenance_agents = maintenance_agents
+class CoordinatorAgent(RoutedAgent):
+    def __init__(self) -> None:
+        super().__init__(
+            description="Coordinates the manufacturing decision workflow."
+        )
 
-    def handle_order(
+        # These IDs must match the IDs used when registering the agents.
+        self.machine_agent_id = AgentId("machine_agent", "M01")
+        self.quality_agent_id = AgentId("quality_agent", "default")
+        self.maintenance_agent_id = AgentId(
+            "maintenance_agent",
+            "default",
+        )
+
+    @message_handler
+    async def handle_order(
         self,
-        order: OrderMessage,
+        message: OrderMessage,
+        ctx: MessageContext,
     ) -> FinalRecommendation:
-        print(
-            f"\nCoordinator Agent received order {order.order_id}."
-        )
+        print(f"Coordinator received order {message.order_id}")
 
-        # -----------------------------------------
-        # 1. Request status from every machine
-        # -----------------------------------------
-
-        status_request = MachineStatusRequest(
+        # STEP 1: Request machine information.
+        machine_request = MachineStatusRequest(
             request_reason="order_evaluation",
-            order_id=order.order_id,
+            order_id=message.order_id,
         )
 
-        machine_responses = []
+        machine_response = await self.send_message(
+            machine_request,
+            recipient=self.machine_agent_id,
+        )
 
-        for machine_agent in self.machine_agents:
-            response = machine_agent.handle_status_request(
-                status_request
+        if not isinstance(machine_response, MachineStatusResponse):
+            raise TypeError(
+                "The Machine Agent returned an invalid response."
             )
-            machine_responses.append(response)
 
-        # -----------------------------------------
-        # 2. Request quality assessments
-        # -----------------------------------------
+        print(
+            f"Coordinator received the status of "
+            f"{machine_response.machine_id}"
+        )
 
+        machine_data = [machine_response.model_dump()]
+
+        # STEP 2: Request a quality assessment.
         quality_request = QualityAssessmentRequest(
-            order_id=order.order_id,
-            quality_requirement=order.quality_requirement,
-            machine_data=[
-                {
-                    "machine_id": machine.machine_id,
-                    "active_warnings": machine.active_warnings,
-                }
-                for machine in machine_responses
-            ],
+            order_id=message.order_id,
+            quality_requirement=message.quality_requirement,
+            machine_data=machine_data,
         )
 
-        quality_response = (
-            self.quality_agent.handle_quality_request(
-                quality_request
+        quality_response = await self.send_message(
+            quality_request,
+            recipient=self.quality_agent_id,
+        )
+
+        if not isinstance(
+            quality_response,
+            QualityAssessmentResponse,
+        ):
+            raise TypeError(
+                "The Quality Agent returned an invalid response."
             )
-        )
 
-        # -----------------------------------------
-        # 3. Request maintenance assessments
-        # -----------------------------------------
+        if not quality_response.assessments:
+            raise ValueError(
+                "The Quality Agent returned no assessments."
+            )
 
+        print("Coordinator received the quality assessment")
+
+        # STEP 3: Request a maintenance assessment.
         maintenance_request = MaintenanceAssessmentRequest(
-            machine_data=[
+            machine_data=machine_data,
+        )
+
+        maintenance_response = await self.send_message(
+            maintenance_request,
+            recipient=self.maintenance_agent_id,
+        )
+
+        if not isinstance(
+            maintenance_response,
+            MaintenanceAssessmentResponse,
+        ):
+            raise TypeError(
+                "The Maintenance Agent returned an invalid response."
+            )
+
+        if not maintenance_response.assessments:
+            raise ValueError(
+                "The Maintenance Agent returned no assessments."
+            )
+
+        print("Coordinator received the maintenance assessment")
+
+        quality_result = quality_response.assessments[0]
+        maintenance_result = maintenance_response.assessments[0]
+
+        # STEP 4: Apply fixed decision rules.
+        rejection_reasons: list[str] = []
+
+        if machine_response.status != "available":
+            rejection_reasons.append(
+                "the machine is not available"
+            )
+
+        if (
+            machine_response.capability
+            != message.required_capability
+        ):
+            rejection_reasons.append(
+                "the machine has the wrong capability"
+            )
+
+        if (
+            machine_response.estimated_processing_time_mins
+            > message.deadline_minutes
+        ):
+            rejection_reasons.append(
+                "the machine cannot meet the deadline"
+            )
+
+        if not quality_result.get("is_suitable", False):
+            rejection_reasons.append(
+                "the machine did not pass the quality assessment"
+            )
+
+        if (
+            maintenance_result.get("availability_status")
+            != "available"
+        ):
+            rejection_reasons.append(
+                "the machine did not pass the maintenance assessment"
+            )
+
+        # STEP 5: Create the final recommendation.
+        if rejection_reasons:
+            selected_machine = "none"
+
+            justification = (
+                f"{machine_response.machine_id} was rejected because "
+                + ", ".join(rejection_reasons)
+                + "."
+            )
+
+            machines_filtered_out = [
                 {
-                    "machine_id": machine.machine_id,
-                    "maintenance_condition": (
-                        machine.maintenance_condition
-                    ),
-                    "active_warnings": machine.active_warnings,
+                    "machine_id": machine_response.machine_id,
+                    "reason": ", ".join(rejection_reasons),
                 }
-                for machine in machine_responses
             ]
-        )
 
-        maintenance_assessments = []
+        else:
+            selected_machine = machine_response.machine_id
 
-        for maintenance_agent in self.maintenance_agents:
-            response = (
-                maintenance_agent.handle_maintenance_request(
-                    maintenance_request
-                )
+            justification = (
+                f"{machine_response.machine_id} was selected because "
+                f"it has the required "
+                f"{message.required_capability} capability, "
+                f"is available, can meet the deadline, "
+                f"and passed the quality and maintenance checks."
             )
 
-            maintenance_assessments.extend(
-                response.assessments
-            )
+            machines_filtered_out = []
 
-        # -----------------------------------------
-        # 4. Create lookup tables
-        # -----------------------------------------
-
-        quality_by_machine = {
-            assessment["machine_id"]: assessment
-            for assessment in quality_response.assessments
-        }
-
-        maintenance_by_machine = {
-            assessment["machine_id"]: assessment
-            for assessment in maintenance_assessments
-        }
-
-        # -----------------------------------------
-        # 5. Apply filtering rules
-        # -----------------------------------------
-
-        candidates = []
-        filtered_out = []
-
-        for machine in machine_responses:
-            machine_id = machine.machine_id
-
-            quality = quality_by_machine[machine_id]
-            maintenance = maintenance_by_machine[machine_id]
-
-            reason = None
-
-            if maintenance["availability_status"] == "blocked":
-                reason = "blocked by maintenance"
-
-            elif (
-                machine.capability.lower()
-                != order.required_capability.lower()
-            ):
-                reason = "wrong capability"
-
-            elif machine.status.lower() in {
-                "maintenance",
-                "offline",
-            }:
-                reason = f"machine status is {machine.status}"
-
-            elif not quality["is_suitable"]:
-                reason = "quality risk is too high"
-
-            elif (
-                machine.estimated_processing_time_mins
-                > order.deadline_minutes
-            ):
-                reason = "cannot meet the deadline"
-
-            if reason:
-                filtered_out.append(
-                    {
-                        "machine_id": machine_id,
-                        "reason": reason,
-                    }
-                )
-
-            else:
-                candidates.append(
-                    {
-                        "machine": machine,
-                        "quality": quality,
-                        "maintenance": maintenance,
-                    }
-                )
-
-        # -----------------------------------------
-        # 6. Handle no suitable machine
-        # -----------------------------------------
-
-        if not candidates:
-            return FinalRecommendation(
-                order_id=order.order_id,
-                selected_machine="NONE",
-                justification=(
-                    "No machine satisfied all capability, "
-                    "quality, maintenance, and deadline rules."
-                ),
-                required_actions={
-                    "quality": "review required",
-                    "maintenance": "review required",
-                },
-                machines_filtered_out=filtered_out,
-            )
-
-        # -----------------------------------------
-        # 7. Rank suitable machines
-        # -----------------------------------------
-
-        candidates.sort(
-            key=lambda candidate: (
-                candidate["machine"].queue_length,
-                candidate["quality"]["quality_risk_score"],
-                candidate[
-                    "machine"
-                ].estimated_processing_time_mins,
-            )
-        )
-
-        best = candidates[0]
-
-        selected_machine = best["machine"]
-        selected_quality = best["quality"]
-        selected_maintenance = best["maintenance"]
-
-        # -----------------------------------------
-        # 8. Create final recommendation
-        # -----------------------------------------
-
-        return FinalRecommendation(
-            order_id=order.order_id,
-            selected_machine=selected_machine.machine_id,
-            justification=(
-                f"{selected_machine.machine_id} has the "
-                f"required {order.required_capability} capability, "
-                f"a queue length of "
-                f"{selected_machine.queue_length}, "
-                f"a quality risk score of "
-                f"{selected_quality['quality_risk_score']}, "
-                f"and can complete the job within "
-                f"{selected_machine.estimated_processing_time_mins} "
-                "minutes."
-            ),
+        final_recommendation = FinalRecommendation(
+            order_id=message.order_id,
+            selected_machine=selected_machine,
+            justification=justification,
             required_actions={
-                "quality": selected_quality[
-                    "recommended_action"
-                ],
-                "maintenance": selected_maintenance[
-                    "maintenance_action_required"
-                ],
+                "quality": quality_result.get(
+                    "recommended_action",
+                    "none",
+                ),
+                "maintenance": maintenance_result.get(
+                    "maintenance_action_required",
+                    "none",
+                ),
             },
-            machines_filtered_out=filtered_out,
+            machines_filtered_out=machines_filtered_out,
         )
+
+        print("Coordinator created the final recommendation")
+
+        return final_recommendation
