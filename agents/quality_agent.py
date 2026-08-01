@@ -1,3 +1,5 @@
+from typing import Any
+
 from autogen_core import MessageContext, RoutedAgent, message_handler
 
 from messages.quality_assessment_request import QualityAssessmentRequest
@@ -7,7 +9,10 @@ from messages.quality_assessment_response import QualityAssessmentResponse
 class QualityAgent(RoutedAgent):
     def __init__(self) -> None:
         super().__init__(
-            description="Evaluates whether machines satisfy the quality requirement."
+            description=(
+                "Evaluates whether machines satisfy "
+                "the quality requirement."
+            )
         )
 
     @message_handler
@@ -21,21 +26,28 @@ class QualityAgent(RoutedAgent):
             f"for order {message.order_id}"
         )
 
-        assessments: list[dict] = []
+        assessments: list[dict[str, Any]] = []
 
         for machine in message.machine_data:
             machine_id = machine.get("machine_id", "unknown")
             warnings = machine.get("active_warnings", [])
 
-            # Simple quality rules for the prototype
-            if "critical_fault" in warnings or "overheating" in warnings:
+            # Fixed quality rules for the prototype
+            if (
+                "critical_fault" in warnings
+                or "overheating" in warnings
+            ):
                 risk_score = 0.8
-                recommended_action = "perform a quality and maintenance check"
+                recommended_action = (
+                    "perform a quality and maintenance check"
+                )
                 is_suitable = False
 
             elif "minor_vibration" in warnings:
                 risk_score = 0.3
-                recommended_action = "continue with observation"
+                recommended_action = (
+                    "continue with observation"
+                )
                 is_suitable = True
 
             else:
@@ -52,4 +64,6 @@ class QualityAgent(RoutedAgent):
                 }
             )
 
-        return QualityAssessmentResponse(assessments=assessments)
+        return QualityAssessmentResponse(
+            assessments=assessments
+        )

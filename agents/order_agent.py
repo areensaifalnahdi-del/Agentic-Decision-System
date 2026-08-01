@@ -1,34 +1,37 @@
+from autogen_core import MessageContext, RoutedAgent, message_handler
+
 from messages.order_message import OrderMessage
 
 
-class OrderAgent:
-    def create_order(
-        self,
-        order_id: str,
-        priority: str,
-        required_capability: str,
-        deadline_minutes: int,
-        quality_requirement: str,
-    ) -> OrderMessage:
-        """Create and validate a new urgent production order."""
-
-        order = OrderMessage(
-            order_id=order_id,
-            priority=priority,
-            required_capability=required_capability,
-            deadline_minutes=deadline_minutes,
-            quality_requirement=quality_requirement,
+class OrderAgent(RoutedAgent):
+    def __init__(self) -> None:
+        super().__init__(
+            description="Creates and validates urgent production orders."
         )
 
-        print(f"Order Agent created order {order.order_id}.")
-        return order
+    @message_handler
+    async def handle_order_creation(
+        self,
+        message: OrderMessage,
+        ctx: MessageContext,
+    ) -> OrderMessage:
+        """
+        Receive and validate an order through the AutoGen runtime.
+        """
 
-    def push_order(self, order: OrderMessage, coordinator):
-        """Push the new order to the Coordinator Agent."""
+        print(f"Order Agent received order {message.order_id}")
+
+        validated_order = OrderMessage(
+            order_id=message.order_id,
+            priority=message.priority,
+            required_capability=message.required_capability,
+            deadline_minutes=message.deadline_minutes,
+            quality_requirement=message.quality_requirement,
+        )
 
         print(
-            f"Order Agent pushed order {order.order_id} "
-            "to the Coordinator Agent."
+            f"Order Agent validated order "
+            f"{validated_order.order_id}"
         )
 
-        return coordinator.handle_order(order)
+        return validated_order

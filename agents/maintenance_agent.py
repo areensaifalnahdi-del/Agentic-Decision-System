@@ -1,3 +1,5 @@
+from typing import Any
+
 from autogen_core import MessageContext, RoutedAgent, message_handler
 
 from messages.maintenance_assessment_request import (
@@ -22,7 +24,7 @@ class MaintenanceAgent(RoutedAgent):
     ) -> MaintenanceAssessmentResponse:
         print("Maintenance Agent received an AutoGen request")
 
-        assessments: list[dict] = []
+        assessments: list[dict[str, Any]] = []
 
         for machine in message.machine_data:
             machine_id = machine.get("machine_id", "unknown")
