@@ -31,7 +31,6 @@ class OrderAgent:
         capabilities = [
             "milling",
             "drilling",
-            "cutting",
             "turning"
         ]
 
