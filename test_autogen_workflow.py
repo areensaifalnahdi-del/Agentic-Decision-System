@@ -1,301 +1,102 @@
 import asyncio
 import random
-import json
 
-from agents.order_agent import OrderAgent
 from autogen_core import AgentId, SingleThreadedAgentRuntime
 
-from agents.autogen_machine_agent import AutoGenMachineAgent
+from agents.order_agent import OrderAgent
+from agents.machine_agent import MachineAgent
 from agents.quality_agent import QualityAgent
 from agents.maintenance_agent import MaintenanceAgent
 from agents.coordinator_agent import CoordinatorAgent
+from agents.verification_agent import VerificationAgent
 
 from colorama import Fore, Style, init
 
 init(autoreset=True)
 
 
+# =========================================================
+# MACHINE AGENT CREATION
+# =========================================================
+
+def create_machine(
+    machine_id: str,
+    capability: str,
+) -> MachineAgent:
+
+    maintenance_condition = round(
+        random.uniform(0.3, 1.0),
+        2,
+    )
+
+    if maintenance_condition < 0.5:
+        warnings = ["critical_fault"]
+
+    elif maintenance_condition < 0.8:
+        warnings = ["minor_vibration"]
+
+    else:
+        warnings = []
+
+    return MachineAgent(
+        machine_id=machine_id,
+        status=random.choice(
+            [
+                "available",
+                "busy",
+                "maintenance",
+            ]
+        ),
+        capability=capability,
+        queue_length=random.randint(0, 5),
+        estimated_processing_time_mins=random.randint(
+            20,
+            90,
+        ),
+        maintenance_condition=maintenance_condition,
+        active_warnings=warnings,
+    )
+
+
+# =========================================================
+# REGISTER MACHINE
+# =========================================================
+
+async def register_machine(
+    runtime: SingleThreadedAgentRuntime,
+    machine: MachineAgent,
+) -> None:
+
+    await machine.register_instance(
+        runtime,
+        AgentId(
+            "machine_agent",
+            machine.machine_id,
+        ),
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
 async def main() -> None:
-    # Create the AutoGen runtime
+
     runtime = SingleThreadedAgentRuntime()
 
-    # -------------------------------------------------
-    # Register 10 Machine Agents
-    # -------------------------------------------------
+    # =====================================================
+    # REGISTER ORDER AGENT
+    # =====================================================
 
-    machine_m01 = AutoGenMachineAgent(
-        machine_id="M01",
-        status="available",
-        capability="milling",
-        queue_length=2,
-        estimated_processing_time_mins=45,
-        maintenance_condition=0.85,
-        active_warnings=[],
-    )
-
-    machine_m01.status = random.choice(["available", "busy", "maintenance"])
-    machine_m01.queue_length = random.randint(0, 5)
-    machine_m01.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m01.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m01.maintenance_condition < 0.5:
-        machine_m01.active_warnings = ["critical_fault"]
-    elif machine_m01.maintenance_condition < 0.8:
-        machine_m01.active_warnings = ["minor_vibration"]
-    else:
-        machine_m01.active_warnings = []
-
-    await machine_m01.register_instance(
+    await OrderAgent.register(
         runtime,
-        AgentId("machine_agent", "M01")
+        "order_agent",
+        lambda: OrderAgent(),
     )
 
-    machine_m02 = AutoGenMachineAgent(
-        machine_id="M02",
-        status="available",
-        capability="turning",
-        queue_length=1,
-        estimated_processing_time_mins=30,
-        maintenance_condition=0.90,
-        active_warnings=[],
-    )
-
-    machine_m02.status = random.choice(["available", "busy", "maintenance"])
-    machine_m02.queue_length = random.randint(0, 5)
-    machine_m02.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m02.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m02.maintenance_condition < 0.5:
-        machine_m02.active_warnings = ["critical_fault"]
-    elif machine_m02.maintenance_condition < 0.8:
-        machine_m02.active_warnings = ["minor_vibration"]
-    else:
-        machine_m02.active_warnings = []
-
-    await machine_m02.register_instance(
-        runtime,
-        AgentId("machine_agent", "M02")
-    )
-
-    machine_m03 = AutoGenMachineAgent(
-        machine_id="M03",
-        status="available",
-        capability="milling",
-        queue_length=0,
-        estimated_processing_time_mins=25,
-        maintenance_condition=0.40,
-        active_warnings=[],
-    )
-
-    machine_m03.status = random.choice(["available", "busy", "maintenance"])
-    machine_m03.queue_length = random.randint(0, 5)
-    machine_m03.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m03.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m03.maintenance_condition < 0.5:
-        machine_m03.active_warnings = ["critical_fault"]
-    elif machine_m03.maintenance_condition < 0.8:
-        machine_m03.active_warnings = ["minor_vibration"]
-    else:
-        machine_m03.active_warnings = []
-
-    await machine_m03.register_instance(
-        runtime,
-        AgentId("machine_agent", "M03")
-    )
-
-    machine_m04 = AutoGenMachineAgent(
-        machine_id="M04",
-        status="available",
-        capability="milling",
-        queue_length=3,
-        estimated_processing_time_mins=60,
-        maintenance_condition=0.95,
-        active_warnings=[],
-    )
-
-    machine_m04.status = random.choice(["available", "busy", "maintenance"])
-    machine_m04.queue_length = random.randint(0, 5)
-    machine_m04.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m04.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m04.maintenance_condition < 0.5:
-        machine_m04.active_warnings = ["critical_fault"]
-    elif machine_m04.maintenance_condition < 0.8:
-        machine_m04.active_warnings = ["minor_vibration"]
-    else:
-        machine_m04.active_warnings = []
-
-    await machine_m04.register_instance(
-        runtime,
-        AgentId("machine_agent", "M04")
-    )
-
-    machine_m05 = AutoGenMachineAgent(
-        machine_id="M05",
-        status="busy",
-        capability="milling",
-        queue_length=5,
-        estimated_processing_time_mins=90,
-        maintenance_condition=0.88,
-        active_warnings=[],
-    )
-
-    machine_m05.status = random.choice(["available", "busy", "maintenance"])
-    machine_m05.queue_length = random.randint(0, 5)
-    machine_m05.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m05.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m05.maintenance_condition < 0.5:
-        machine_m05.active_warnings = ["critical_fault"]
-    elif machine_m05.maintenance_condition < 0.8:
-        machine_m05.active_warnings = ["minor_vibration"]
-    else:
-        machine_m05.active_warnings = []
-
-    await machine_m05.register_instance(
-        runtime,
-        AgentId("machine_agent", "M05")
-    )
-
-    machine_m06 = AutoGenMachineAgent(
-        machine_id="M06",
-        status="available",
-        capability="drilling",
-        queue_length=2,
-        estimated_processing_time_mins=35,
-        maintenance_condition=0.93,
-        active_warnings=[],
-    )
-
-    machine_m06.status = random.choice(["available", "busy", "maintenance"])
-    machine_m06.queue_length = random.randint(0, 5)
-    machine_m06.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m06.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m06.maintenance_condition < 0.5:
-        machine_m06.active_warnings = ["critical_fault"]
-    elif machine_m06.maintenance_condition < 0.8:
-        machine_m06.active_warnings = ["minor_vibration"]
-    else:
-        machine_m06.active_warnings = []
-
-    await machine_m06.register_instance(
-        runtime,
-        AgentId("machine_agent", "M06")
-    )
-
-    machine_m07 = AutoGenMachineAgent(
-        machine_id="M07",
-        status="available",
-        capability="milling",
-        queue_length=1,
-        estimated_processing_time_mins=40,
-        maintenance_condition=0.80,
-        active_warnings=[],
-    )
-
-    machine_m07.status = random.choice(["available", "busy", "maintenance"])
-    machine_m07.queue_length = random.randint(0, 5)
-    machine_m07.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m07.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m07.maintenance_condition < 0.5:
-        machine_m07.active_warnings = ["critical_fault"]
-    elif machine_m07.maintenance_condition < 0.8:
-        machine_m07.active_warnings = ["minor_vibration"]
-    else:
-        machine_m07.active_warnings = []
-
-    await machine_m07.register_instance(
-        runtime,
-        AgentId("machine_agent", "M07")
-    )
-
-    machine_m08 = AutoGenMachineAgent(
-        machine_id="M08",
-        status="maintenance",
-        capability="milling",
-        queue_length=0,
-        estimated_processing_time_mins=0,
-        maintenance_condition=0.30,
-        active_warnings=[],
-    )
-
-    machine_m08.status = random.choice(["available", "busy", "maintenance"])
-    machine_m08.queue_length = random.randint(0, 5)
-    machine_m08.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m08.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m08.maintenance_condition < 0.5:
-        machine_m08.active_warnings = ["critical_fault"]
-    elif machine_m08.maintenance_condition < 0.8:
-        machine_m08.active_warnings = ["minor_vibration"]
-    else:
-        machine_m08.active_warnings = []
-
-    await machine_m08.register_instance(
-        runtime,
-        AgentId("machine_agent", "M08")
-    )
-
-    machine_m09 = AutoGenMachineAgent(
-        machine_id="M09",
-        status="available",
-        capability="turning",
-        queue_length=4,
-        estimated_processing_time_mins=55,
-        maintenance_condition=0.91,
-        active_warnings=[],
-    )
-
-    machine_m09.status = random.choice(["available", "busy", "maintenance"])
-    machine_m09.queue_length = random.randint(0, 5)
-    machine_m09.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m09.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m09.maintenance_condition < 0.5:
-        machine_m09.active_warnings = ["critical_fault"]
-    elif machine_m09.maintenance_condition < 0.8:
-        machine_m09.active_warnings = ["minor_vibration"]
-    else:
-        machine_m09.active_warnings = []
-
-    await machine_m09.register_instance(
-        runtime,
-        AgentId("machine_agent", "M09")
-    )
-
-    machine_m10 = AutoGenMachineAgent(
-        machine_id="M10",
-        status="available",
-        capability="milling",
-        queue_length=2,
-        estimated_processing_time_mins=50,
-        maintenance_condition=0.97,
-        active_warnings=[],
-    )
-
-    machine_m10.status = random.choice(["available", "busy", "maintenance"])
-    machine_m10.queue_length = random.randint(0, 5)
-    machine_m10.estimated_processing_time_mins = random.randint(20, 90)
-    machine_m10.maintenance_condition = round(random.uniform(0.3, 1.0), 2)
-
-    if machine_m10.maintenance_condition < 0.5:
-        machine_m10.active_warnings = ["critical_fault"]
-    elif machine_m10.maintenance_condition < 0.8:
-        machine_m10.active_warnings = ["minor_vibration"]
-    else:
-        machine_m10.active_warnings = []
-
-    await machine_m10.register_instance(
-        runtime,
-        AgentId("machine_agent", "M10")
-    )
-
-    # -------------------------------------------------
-    # Register specialist and coordinator agents
-    # -------------------------------------------------
+    # =====================================================
+    # REGISTER SPECIALIST AGENTS
+    # =====================================================
 
     await QualityAgent.register(
         runtime,
@@ -309,14 +110,65 @@ async def main() -> None:
         lambda: MaintenanceAgent(),
     )
 
+    # =====================================================
+    # REGISTER VERIFICATION AGENT
+    # =====================================================
+
+    await VerificationAgent.register(
+        runtime,
+        "verification_agent",
+        lambda: VerificationAgent(),
+    )
+
+    # =====================================================
+    # REGISTER COORDINATOR
+    # =====================================================
+
     await CoordinatorAgent.register(
         runtime,
         "coordinator_agent",
         lambda: CoordinatorAgent(),
     )
 
-    # Start the AutoGen runtime
+    # =====================================================
+    # START RUNTIME
+    # =====================================================
+
     runtime.start()
+
+    # =====================================================
+    # MACHINE DEFINITIONS
+    # =====================================================
+
+    machines = [
+        create_machine(
+            "M01",
+            "milling",
+        ),
+        create_machine(
+            "M02",
+            "turning",
+        ),
+        create_machine(
+            "M03",
+            "milling",
+        ),
+    ]
+
+    # =====================================================
+    # REGISTER INITIAL MACHINES
+    # =====================================================
+
+    for machine in machines:
+
+        await register_machine(
+            runtime,
+            machine,
+        )
+
+    # =====================================================
+    # GET ORDER AGENT
+    # =====================================================
 
     order_agent = OrderAgent()
 
@@ -324,273 +176,511 @@ async def main() -> None:
     print(
         Fore.CYAN
         + Style.BRIGHT
-        + "STARTING COMPLETE MULTI-MACHINE AUTOGEN WORKFLOW"
+        + "============================================================"
+    )
+    print(
+        Fore.CYAN
+        + Style.BRIGHT
+        + "        CONTINUOUS MULTI-MACHINE AUTOGEN WORKFLOW"
+    )
+    print(
+        Fore.CYAN
+        + Style.BRIGHT
+        + "============================================================"
     )
     print()
 
-    while True:
-        order = order_agent.generate_random_order()
+    try:
 
-        final_response = await runtime.send_message(
-            order,
-            recipient=AgentId(
-                "coordinator_agent",
-                "default",
-            ),
-        )
+        while True:
 
-        # -------------------------------------------------
-        # Final recommendation
-        # -------------------------------------------------
-
-        print()
-        print(
-            Fore.CYAN
-            + Style.BRIGHT
-            + "=========================================="
-        )
-        print(
-            Fore.CYAN
-            + Style.BRIGHT
-            + "        FINAL AUTOGEN RECOMMENDATION"
-        )
-        print(
-            Fore.CYAN
-            + Style.BRIGHT
-            + "=========================================="
-        )
-
-        if final_response is None:
-            print(
-                Fore.RED
-                + "The Coordinator did not return a response."
-            )
-
-        else:
-            print()
-
-            print(
-                Fore.BLUE
-                + "Order ID:"
-                + Style.RESET_ALL,
-                final_response.order_id,
-            )
-
-            if final_response.selected_machine == "none":
-                print(
-                    Fore.RED
-                    + "Selected Machine:"
-                    + Style.RESET_ALL,
-                    final_response.selected_machine,
-                )
-            else:
-                print(
-                    Fore.GREEN
-                    + Style.BRIGHT
-                    + "Selected Machine:"
-                    + Style.RESET_ALL,
-                    Style.BRIGHT
-                    + final_response.selected_machine,
-                )
-
-            print(
-                Fore.YELLOW
-                + "Justification:"
-                + Style.RESET_ALL,
-                final_response.justification,
-            )
-
-            print()
-            print(
-                Fore.MAGENTA
-                + Style.BRIGHT
-                + "Required Actions:"
-            )
-
-            for action, value in final_response.required_actions.items():
-                print(
-                    "  "
-                    + Fore.YELLOW
-                    + action
-                    + Style.RESET_ALL
-                    + ": "
-                    + str(value)
-                )
-
-            print()
-            print(
-                Fore.RED
-                + Style.BRIGHT
-                + "Rejected Machines:"
-            )
-
-            if final_response.machines_filtered_out:
-                for machine in final_response.machines_filtered_out:
-                    print(
-                        "  "
-                        + Fore.RED
-                        + machine["machine_id"]
-                        + Style.RESET_ALL
-                        + " -> "
-                        + machine["reason"]
-                    )
-            else:
-                print(
-                    "  "
-                    + Fore.GREEN
-                    + "None"
-                    + Style.RESET_ALL
-                )
+            # =================================================
+            # GENERATING NEW ORDER
+            # =================================================
 
             print()
             print(
                 Fore.CYAN
                 + Style.BRIGHT
-                + "Evidence:"
+                + "============================================================"
+            )
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + "                     NEW ORDER"
+            )
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + "============================================================"
             )
 
-            evidence = final_response.evidence
+            # =================================================
+            # RANDOMIZE MACHINE CONDITIONS
+            # =================================================
+
+            for machine in machines:
+
+                machine.status = random.choice(
+                    [
+                        "available",
+                        "busy",
+                        "maintenance",
+                    ]
+                )
+
+                machine.queue_length = random.randint(
+                    0,
+                    5,
+                )
+
+                machine.estimated_processing_time_mins = (
+                    random.randint(
+                        20,
+                        90,
+                    )
+                )
+
+                machine.maintenance_condition = round(
+                    random.uniform(
+                        0.3,
+                        1.0,
+                    ),
+                    2,
+                )
+
+                if (
+                    machine.maintenance_condition
+                    < 0.5
+                ):
+
+                    machine.active_warnings = [
+                        "critical_fault"
+                    ]
+
+                elif (
+                    machine.maintenance_condition
+                    < 0.8
+                ):
+
+                    machine.active_warnings = [
+                        "minor_vibration"
+                    ]
+
+                else:
+
+                    machine.active_warnings = []
+
+            # =================================================
+            # GENERATE ORDER
+            # =================================================
+
+            order = order_agent.generate_order()
+
+            # =================================================
+            # PRINT ORDER DETAILS
+            # =================================================
 
             print()
+            print(
+                Fore.YELLOW
+                + Style.BRIGHT
+                + "ORDER DETAILS"
+            )
+            print(
+                Fore.YELLOW
+                + "------------------------------------------------------------"
+            )
 
-            # Order evidence
-            if "order" in evidence:
-                order_evidence = evidence["order"]
+            print(
+                Fore.BLUE
+                + "  Order ID:"
+                + Style.RESET_ALL,
+                order.order_id,
+            )
 
-                print(
-                    Fore.BLUE
-                    + Style.BRIGHT
-                    + "  Order:"
-                    + Style.RESET_ALL
-                )
+            print(
+                Fore.BLUE
+                + "  Priority:"
+                + Style.RESET_ALL,
+                order.priority,
+            )
 
-                print(
-                    f"    Order ID: {order_evidence.get('order_id')}"
-                )
+            print(
+                Fore.BLUE
+                + "  Required Capability:"
+                + Style.RESET_ALL,
+                order.required_capability,
+            )
 
-                print(
-                    f"    Required Capability: "
-                    f"{order_evidence.get('required_capability')}"
-                )
+            print(
+                Fore.BLUE
+                + "  Deadline:"
+                + Style.RESET_ALL,
+                f"{order.deadline_minutes} minutes",
+            )
 
-                print(
-                    f"    Quality Requirement: "
-                    f"{order_evidence.get('quality_requirement')}"
-                )
+            print(
+                Fore.BLUE
+                + "  Quality Requirement:"
+                + Style.RESET_ALL,
+                order.quality_requirement,
+            )
 
-                print(
-                    f"    Deadline: "
-                    f"{order_evidence.get('deadline_minutes')} minutes"
-                )
+            # =================================================
+            # PRINT MACHINE CONDITIONS
+            # =================================================
 
-            # Selected machine evidence
-            if evidence.get("selected_machine"):
-                machine = evidence["selected_machine"]
+            print()
+            print(
+                Fore.MAGENTA
+                + Style.BRIGHT
+                + "MACHINE CONDITIONS"
+            )
+            print(
+                Fore.MAGENTA
+                + "------------------------------------------------------------"
+            )
 
-                print()
-                print(
-                    Fore.GREEN
-                    + Style.BRIGHT
-                    + "  Selected Machine Evidence:"
-                    + Style.RESET_ALL
-                )
+            for machine in machines:
 
-                print(
-                    f"    Machine ID: {machine.get('machine_id')}"
-                )
-
-                print(
-                    f"    Status: {machine.get('status')}"
-                )
-
-                print(
-                    f"    Capability: {machine.get('capability')}"
-                )
-
-                print(
-                    f"    Queue Length: {machine.get('queue_length')}"
-                )
-
-                print(
-                    f"    Processing Time: "
-                    f"{machine.get('estimated_processing_time_mins')} mins"
-                )
-
-                print(
-                    f"    Maintenance Condition: "
-                    f"{machine.get('maintenance_condition')}"
-                )
-
-                print(
-                    f"    Warnings: "
-                    f"{', '.join(machine.get('active_warnings', [])) or 'None'}"
-                )
-
-                quality = machine.get("quality_assessment")
-
-                if quality:
-                    print(
-                        f"    Quality Risk: "
-                        f"{quality.get('quality_risk_score')}"
+                warnings = (
+                    ", ".join(
+                        machine.active_warnings
                     )
+                    if machine.active_warnings
+                    else "None"
+                )
 
-                    print(
-                        f"    Quality Action: "
-                        f"{quality.get('recommended_action')}"
+                if machine.status == "available":
+                    status_color = Fore.GREEN
+
+                elif machine.status == "busy":
+                    status_color = Fore.YELLOW
+
+                else:
+                    status_color = Fore.RED
+
+                print(
+                    f"  {Fore.CYAN}{machine.machine_id}"
+                    f"{Style.RESET_ALL} | "
+                    f"{status_color}{machine.status}"
+                    f"{Style.RESET_ALL} | "
+                    f"{machine.capability} | "
+                    f"Queue: {machine.queue_length} | "
+                    f"Time: "
+                    f"{machine.estimated_processing_time_mins} min | "
+                    f"Maintenance: "
+                    f"{machine.maintenance_condition} | "
+                    f"Warnings: "
+                    f"{warnings}"
+                )
+
+            # =================================================
+            # SEND ORDER TO ORDER AGENT
+            # =================================================
+
+            print()
+            print(
+                Fore.CYAN
+                + "Sending order to Order Agent for validation..."
+            )
+
+            validated_order = await runtime.send_message(
+                order,
+                recipient=AgentId(
+                    "order_agent",
+                    "default",
+                ),
+            )
+
+            # =================================================
+            # SEND VALIDATED ORDER TO COORDINATOR
+            # =================================================
+
+            print(
+                Fore.CYAN
+                + "Sending validated order to Coordinator..."
+            )
+
+            try:
+
+                final_response = (
+                    await runtime.send_message(
+                        validated_order,
+                        recipient=AgentId(
+                            "coordinator_agent",
+                            "default",
+                        ),
                     )
+                )
 
-                maintenance = machine.get("maintenance_assessment")
+            except Exception as error:
 
-                if maintenance:
-                    print(
-                        f"    Maintenance Status: "
-                        f"{maintenance.get('availability_status')}"
-                    )
-                    print(
-                        f"    Maintenance Action: "
-                        f"{maintenance.get('maintenance_action_required')}"
-                    )
-
-            else:
                 print()
                 print(
                     Fore.RED
                     + Style.BRIGHT
-                    + "  Selected Machine Evidence:"
-                    + Style.RESET_ALL
-                    + " None"
+                    + "ERROR DURING DECISION PROCESS"
+                )
+                print(
+                    Fore.RED
+                    + "------------------------------------------------------------"
+                )
+                print(
+                    Fore.RED
+                    + str(error)
                 )
 
-            # Rejected machines evidence
-            rejected = evidence.get("rejected_machines", [])
+                await asyncio.sleep(5)
+
+                continue
+
+            # =================================================
+            # FINAL RECOMMENDATION
+            # =================================================
 
             print()
             print(
-                Fore.RED
+                Fore.CYAN
                 + Style.BRIGHT
-                + "  Rejected Machine Evidence:"
-                + Style.RESET_ALL
+                + "============================================================"
+            )
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + "                  FINAL RECOMMENDATION"
+            )
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + "============================================================"
             )
 
-            if rejected:
-                for machine in rejected:
-                    print(
-                        f"    {machine.get('machine_id')}: "
-                        f"{machine.get('reason')}"
-                    )
+            if final_response is None:
+
+                print()
+                print(
+                    Fore.RED
+                    + "No response received from Coordinator."
+                )
+
             else:
-                print("    None")
+
+                # =================================================
+                # RECOMMENDATION
+                # =================================================
+
+                print()
+
+                print(
+                    Fore.YELLOW
+                    + Style.BRIGHT
+                    + "Recommendation"
+                )
+
+                print(
+                    Fore.YELLOW
+                    + "------------------------------------------------------------"
+                )
+
+                print(
+                    Fore.BLUE
+                    + "  Recommendation:"
+                    + Style.RESET_ALL,
+                    final_response.recommendation,
+                )
+
+                if final_response.selected_machine == "none":
+
+                    print(
+                        Fore.RED
+                        + "  Selected Machine:"
+                        + Style.RESET_ALL,
+                        final_response.selected_machine,
+                    )
+
+                else:
+
+                    print(
+                        Fore.GREEN
+                        + Style.BRIGHT
+                        + "  Selected Machine:"
+                        + Style.RESET_ALL,
+                        final_response.selected_machine,
+                    )
+
+                # =================================================
+                # REASONING
+                # =================================================
+
+                print()
+                print(
+                    Fore.YELLOW
+                    + Style.BRIGHT
+                    + "Reasoning"
+                )
+
+                print(
+                    Fore.YELLOW
+                    + "------------------------------------------------------------"
+                )
+
+                print(
+                    final_response.reasoning
+                )
+
+                # =================================================
+                # VERIFICATION
+                # =================================================
+
+                verification = (
+                    final_response.verification_result
+                )
+
+                print()
+                print(
+                    Fore.CYAN
+                    + Style.BRIGHT
+                    + "Verification"
+                )
+
+                print(
+                    Fore.CYAN
+                    + "------------------------------------------------------------"
+                )
+
+                verification_status = verification.get(
+                    "status"
+                )
+
+                if verification_status == "passed":
+
+                    print(
+                        Fore.GREEN
+                        + Style.BRIGHT
+                        + "  Status:"
+                        + Style.RESET_ALL,
+                        verification_status,
+                    )
+
+                else:
+
+                    print(
+                        Fore.RED
+                        + Style.BRIGHT
+                        + "  Status:"
+                        + Style.RESET_ALL,
+                        verification_status,
+                    )
+
+                print(
+                    Fore.BLUE
+                    + "  Gemini Used:"
+                    + Style.RESET_ALL,
+                    verification.get(
+                        "gemini_used"
+                    ),
+                )
+
+                print(
+                    Fore.BLUE
+                    + "  Fallback Used:"
+                    + Style.RESET_ALL,
+                    verification.get(
+                        "used_fallback"
+                    ),
+                )
+
+                # =================================================
+                # REJECTED MACHINES
+                # =================================================
+
+                rejected = (
+                    final_response.machines_filtered_out
+                )
+
+                print()
+                print(
+                    Fore.RED
+                    + Style.BRIGHT
+                    + "Rejected Machines"
+                )
+
+                print(
+                    Fore.RED
+                    + "------------------------------------------------------------"
+                )
+
+                if rejected:
+
+                    for machine in rejected:
+
+                        print(
+                            "  "
+                            + Fore.RED
+                            + machine["machine_id"]
+                            + Style.RESET_ALL
+                            + " -> "
+                            + machine["reason"]
+                        )
+
+                else:
+
+                    print(
+                        "  "
+                        + Fore.GREEN
+                        + "None"
+                        + Style.RESET_ALL
+                    )
+
+            # =================================================
+            # END OF ORDER
+            # =================================================
+
+            print()
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + "============================================================"
+            )
+
+            print(
+                Fore.CYAN
+                + "Waiting 5 seconds before the next order..."
+            )
+
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + "============================================================"
+            )
+
+            await asyncio.sleep(5)
+
+    except KeyboardInterrupt:
 
         print()
         print(
-            Fore.CYAN
+            Fore.YELLOW
             + Style.BRIGHT
-            + "=========================================="
+            + "Stopping workflow..."
         )
 
-        print()
-        await asyncio.sleep(5)
+    finally:
 
+        await runtime.stop_when_idle()
+
+        print(
+            Fore.GREEN
+            + Style.BRIGHT
+            + "Workflow stopped."
+        )
+
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     asyncio.run(main())
