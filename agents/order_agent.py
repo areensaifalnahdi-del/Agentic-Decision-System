@@ -1,64 +1,94 @@
 import random
+
+from autogen_core import MessageContext, RoutedAgent, message_handler
+
 from messages.order_message import OrderMessage
 
-class OrderAgent:
 
-    def create_order(
-        self,
-        order_id: str,
-        priority: str,
-        required_capability: str,
-        deadline_minutes: int,
-        quality_requirement: str,
-    ) -> OrderMessage:
-        """Create and validate a new urgent production order."""
+class OrderAgent(RoutedAgent):
+
+    def __init__(self) -> None:
+
+        super().__init__(
+            description=(
+                "Generates and validates urgent "
+                "production orders."
+            )
+        )
+
+        self.order_counter = 0
+
+    def generate_order(self) -> OrderMessage:
+
+        self.order_counter += 1
+
+        order_id = (
+            f"ORD-{self.order_counter:03d}"
+        )
+
+        required_capability = random.choice(
+            [
+                "milling",
+                "drilling",
+                "cutting",
+                "turning",
+            ]
+        )
+
+        deadline_minutes = random.choice(
+            [
+                60,
+                90,
+                120,
+            ]
+        )
+
+        quality_requirement = random.choice(
+            [
+                "standard",
+                "high",
+                "critical",
+            ]
+        )
 
         order = OrderMessage(
             order_id=order_id,
-            priority=priority,
+            priority="urgent",
             required_capability=required_capability,
             deadline_minutes=deadline_minutes,
             quality_requirement=quality_requirement,
         )
 
-        print(f"Order Agent created order {order.order_id}.")
-        return order
-
-
-    def generate_random_order(self) -> OrderMessage:
-        """Generate a random urgent production order."""
-
-        capabilities = [
-            "milling",
-            "drilling",
-            "turning"
-        ]
-
-        quality_requirements = [
-            "standard",
-            "high",
-            "critical"
-        ]
-
-        order_id = f"ORD-{random.randint(100,999)}"
-
-        order = self.create_order(
-            order_id=order_id,
-            priority="urgent",
-            required_capability=random.choice(capabilities),
-            deadline_minutes=random.randint(20, 60),
-            quality_requirement=random.choice(quality_requirements),
+        print(
+            f"\nOrder Agent generated "
+            f"{order.order_id}"
         )
 
         return order
 
-
-    def push_order(self, order: OrderMessage, coordinator):
-        """Push the new order to the Coordinator Agent."""
+    @message_handler
+    async def handle_order_creation(
+        self,
+        message: OrderMessage,
+        ctx: MessageContext,
+    ) -> OrderMessage:
 
         print(
-            f"Order Agent pushed order {order.order_id} "
-            "to the Coordinator Agent."
+            f"Order Agent received "
+            f"order {message.order_id}"
         )
 
-        return coordinator.handle_order(order)
+        validated_order = OrderMessage(
+            order_id=message.order_id,
+            priority=message.priority,
+            required_capability=message.required_capability,
+            deadline_minutes=message.deadline_minutes,
+            quality_requirement=message.quality_requirement,
+        )
+
+        print(
+            f"Order Agent validated "
+            f"{validated_order.order_id}"
+        )
+
+        return validated_order
